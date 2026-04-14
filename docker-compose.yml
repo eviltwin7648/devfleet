@@ -1,0 +1,92 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: devfleet-postgres
+    environment:
+      POSTGRES_USER: devfleet
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: devfleet
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devfleet"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: devfleet-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: devfleet-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: devfleet
+      RABBITMQ_DEFAULT_PASS: password123
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  backend:
+    build:
+      context: ./Devfleet-backend
+      dockerfile: Dockerfile
+    container_name: devfleet-backend
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://devfleet:password123@postgres:5432/devfleet?schema=public
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://devfleet:password123@rabbitmq:5672
+      - PORT=3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+
+  worker:
+    build:
+      context: ./Devfleet-backend
+      dockerfile: Dockerfile
+    container_name: devfleet-worker
+    command: ["npm", "run", "worker"]
+    environment:
+      - DATABASE_URL=postgresql://devfleet:password123@postgres:5432/devfleet?schema=public
+      - REDIS_URL=redis://redis:6379
+      - RABBITMQ_URL=amqp://devfleet:password123@rabbitmq:5672
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./Devfleet-frontend
+      dockerfile: Dockerfile
+    container_name: devfleet-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:

@@ -1,0 +1,161 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String          @id @default(uuid())
+  email          String          @unique
+  name           String
+  password       String?
+  githubId       String?         @unique
+  avatarUrl      String?
+  authProvider   String          @default("email") // "email" or "github"
+  createdAt      DateTime        @default(now())
+  agentapikeys   AgentAPIKey[]
+  agents         Agent[]
+  jobDefinitions JobDefinition[]
+}
+
+model emailOtp {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  otp        String
+  expiresAt  DateTime
+  isVerified Boolean
+  createdAt  DateTime @default(now())
+}
+
+model Agent {
+  id            String          @id @default(uuid()) @unique
+  hostname      String          
+  os            String
+  arch          String          //cpu architecture
+  totalmem      BigInt
+  lastSeen      DateTime
+  isOnline      Boolean         @default(true)
+  jobExecutions JobExecution[]
+  apiKey        AgentAPIKey?    @relation(fields: [apiKeyId], references: [id])
+  apiKeyId      String?         @unique // ensures 1-to-1 link between agent and API key
+  user          User            @relation(fields: [userId], references: [id])
+  userId        String
+  agentHealth   AgentHealth[]
+}
+
+model JobDefinition {
+  id            String         @id @default(uuid())
+  title         String
+  description   String?
+  script        String
+  env           Json?
+  scheduleAt    DateTime?
+  repeatCron    String?
+  isRecurring   Boolean
+  maxRetries    Int
+  timeoutSec    Int?
+  tags          Json?
+  userId        String
+  user          User           @relation(fields: [userId], references: [id])
+  executions    JobExecution[]
+  createdAt     DateTime       @default(now())
+}
+
+
+model JobExecution {
+  id            String   @id @default(uuid())
+  jobId         String
+  job           JobDefinition @relation(fields: [jobId], references: [id])
+
+  agentId       String?
+  agent         Agent?  @relation(fields: [agentId], references: [id])
+
+  attempt       Int
+  status        ExecutionStatus
+  exitCode      Int?
+  failureType   FailureType?
+
+  scheduledAt   DateTime
+  startedAt     DateTime?
+  finishedAt    DateTime?
+
+  logs          LogChunk[]
+
+  createdAt     DateTime @default(now())
+}
+
+
+
+model LogChunk {
+  id           String   @id @default(uuid())
+  execution    JobExecution @relation(fields: [executionId], references: [id])
+  executionId  String
+  batchSeq     Int
+  seq          Int
+  type         LogType
+  content      String
+  createdAt    DateTime @default(now())
+  timestamp    DateTime
+  @@unique([executionId, seq])
+}
+
+
+model AgentAPIKey {
+  id        String    @id @default(uuid())
+  user      User      @relation(fields: [userId], references: [id])
+  userId    String
+  apiKey    String    @unique
+  isUsed    Boolean   @default(false)
+  usedAt    DateTime?
+  agent     Agent?    @relation
+  agentId   String?   @unique
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+  expiresAt DateTime
+  keyName   String?
+}
+
+model AgentHealth {
+  id        String   @id @default(uuid())
+  agent     Agent    @relation(fields: [agentId], references: [id])
+  agentId   String
+  cpuUsage  Float
+  memUsage  Float
+  diskUsage Float?
+  timestamp DateTime @default(now())
+}
+
+enum ExecutionStatus {
+  CREATED
+  READY
+  DISPATCHED
+  RUNNING
+  SUCCESS
+  FAILED
+  TIMEOUT
+  CANCELLED
+  LOST
+}
+
+enum FailureType {
+  USER_ERROR
+  AGENT_ERROR
+  SYSTEM_ERROR
+}
+
+
+enum LogType {
+  STDOUT
+  STDERR
+  SYSTEM
+}

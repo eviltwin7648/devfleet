@@ -1,0 +1,24 @@
+# Binaries
+*.exe
+*.out
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Build folders
+/bin/
+/build/
+/dist/
+
+# IDE stuff
+.vscode/
+.idea/
+
+# OS junk
+.DS_Store
+
+# Env
+.env

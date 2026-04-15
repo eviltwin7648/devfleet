@@ -5,17 +5,14 @@ import { connection } from "./lib/queue";
 import { db } from "./db/db";
 import { JobDispatcher, JobEvent } from "./lib/jobDispatcher";
 
-// Initialize JobDispatcher
 JobDispatcher.initialize();
 
-// Define the job data structure
 interface JobData {
   jobDefinitionId: string;
   agentId?: string;
   attempt?: number;
 }
 
-// Create the worker
 const worker = new Worker<JobData>(
   "devfleet-jobs",
   async (job: Job<JobData>) => {
@@ -38,14 +35,6 @@ const worker = new Worker<JobData>(
       console.log(
         `✅ Created JobExecution ${execution.id} for JobDefinition ${jobDefinitionId}`,
       );
-
-      // Publish job:created event for waiting agents
-      // await JobDispatcher.publish(JobEvent.CREATED, {
-      //   executionId: execution.id,
-      //   jobDefinitionId: jobDefinitionId,
-      //   agentId: agentId,
-      //   status: execution.status,
-      // });
 
       return { executionId: execution.id, status: "success" };
     } catch (error) {

@@ -67,6 +67,7 @@ model JobDefinition {
   tags          Json?
   userId        String
   user          User           @relation(fields: [userId], references: [id])
+  state         JOBDEFINITIONSTATE
   executions    JobExecution[]
   createdAt     DateTime       @default(now())
 }
@@ -158,4 +159,10 @@ enum LogType {
   STDOUT
   STDERR
   SYSTEM
+}
+
+enum JOBDEFINITIONSTATE {
+  ACTIVE
+  PAUSED
+  CANCELLED
 }

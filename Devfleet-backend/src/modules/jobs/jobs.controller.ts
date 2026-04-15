@@ -46,6 +46,7 @@ const createJob = async (req: Request, res: Response) => {
         tags: tags || {},
         maxRetries: maxRetries || 3,
         timeoutSec: timeoutSec || null,
+        state: "ACTIVE",
       },
     });
 
@@ -353,11 +354,9 @@ const stopJob = async (req: Request, res: Response) => {
     }
 
     if (!execution.job.isRecurring) {
-      res
-        .status(400)
-        .json({
-          message: "Job is not recurring. Use the cancel endpoint instead.",
-        });
+      res.status(400).json({
+        message: "Job is not recurring. Use the cancel endpoint instead.",
+      });
       return;
     }
 

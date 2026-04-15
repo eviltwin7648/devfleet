@@ -212,7 +212,14 @@ const getJobExecutions = async (req: Request, res: Response) => {
       },
       include: {
         agent: {
-          select: { id: true, hostname: true, os: true, arch: true, isOnline: true, lastSeen: true },
+          select: {
+            id: true,
+            hostname: true,
+            os: true,
+            arch: true,
+            isOnline: true,
+            lastSeen: true,
+          },
         },
       },
       orderBy: { createdAt: "desc" },
@@ -274,6 +281,10 @@ const reRunJob = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Cancel the current execution only.
+ * For both one-time and recurring jobs — does NOT stop future runs of recurring jobs.
+ */
 const cancelJob = async (req: Request, res: Response) => {
   try {
     const { executionId } = req.params;
@@ -299,21 +310,76 @@ const cancelJob = async (req: Request, res: Response) => {
       return;
     }
 
-    // Update execution status
+    // Cancel the current execution only
     await db.jobExecution.update({
       where: { id: executionId },
       data: { status: "CANCELLED" },
     });
 
-    // If it's a recurring job, remove it from the scheduler
-    if (execution.job.isRecurring) {
-      await JobScheduler.removeRecurringJob(execution.job.id);
-    }
-
-    res.status(200).json({ message: "Job cancelled successfully" });
+    res.status(200).json({ message: "Job execution cancelled successfully" });
   } catch (error) {
     console.error("Error cancelling job:", error);
     res.status(500).json({ error: "Failed to cancel job" });
+  }
+};
+
+/**
+ * Stop a recurring job: cancel the current execution AND remove it from the
+ * scheduler so no future executions are triggered.
+ */
+const stopJob = async (req: Request, res: Response) => {
+  try {
+    const { executionId } = req.params;
+    const userId = req.user?.id;
+
+    if (!userId) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const execution = await db.jobExecution.findUnique({
+      where: { id: executionId },
+      include: { job: true },
+    });
+
+    if (!execution) {
+      res.status(404).json({ message: "Execution not found" });
+      return;
+    }
+
+    if (execution.job.userId !== userId) {
+      res.status(403).json({ message: "Forbidden" });
+      return;
+    }
+
+    if (!execution.job.isRecurring) {
+      res
+        .status(400)
+        .json({
+          message: "Job is not recurring. Use the cancel endpoint instead.",
+        });
+      return;
+    }
+
+    // Cancel the current execution
+    await db.jobExecution.update({
+      where: { id: executionId },
+      data: { status: "CANCELLED" },
+    });
+
+    // Remove from the BullMQ scheduler so no future runs are triggered
+    await JobScheduler.removeRecurringJob(execution.job.id);
+
+    // Mark the job definition as no longer recurring so the UI reflects this
+    // await db.jobDefinition.update({
+    //   where: { id: execution.job.id },
+    //   data: { isRecurring: false, repeatCron: null },
+    // });
+
+    res.status(200).json({ message: "Recurring job stopped successfully" });
+  } catch (error) {
+    console.error("Error stopping recurring job:", error);
+    res.status(500).json({ error: "Failed to stop recurring job" });
   }
 };
 
@@ -326,6 +392,5 @@ export const jobController = {
   getJobExecutions,
   reRunJob,
   cancelJob,
+  stopJob,
 };
-
-

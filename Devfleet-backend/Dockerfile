@@ -30,5 +30,5 @@ COPY --from=builder /app/prisma ./prisma
 # Expose backend port
 EXPOSE 3000
 
-# Start command (can be overridden by docker-compose for worker)
-CMD ["npm", "start"]
+# Run DB migrations then start the API server
+CMD ["sh", "-c", "npx prisma migrate deploy && npm start"]

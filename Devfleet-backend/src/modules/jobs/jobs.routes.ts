@@ -14,6 +14,7 @@ router.get(
 );
 router.post("/execution/:executionId/rerun", userAuth, jobController.reRunJob);
 router.post("/execution/:executionId/cancel", userAuth, jobController.cancelJob);
+router.post("/execution/:executionId/stop", userAuth, jobController.stopJob);
 router.put("/update/:jobId", userAuth, jobController.updateJob);
 
 router.delete("/delete/:jobId", userAuth, jobController.deleteJob);

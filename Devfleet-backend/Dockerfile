@@ -2,20 +2,19 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Install dependencies
+# Install dependencies first (cached layer)
 COPY package.json package-lock.json* ./
-# Copy the non-standard prisma schema location before npm install
-# so that `prisma generate` (run as a postinstall hook) can find it.
-COPY src/db/prisma ./src/db/prisma/
 RUN npm install
 
-# Generate Prisma client (schema lives at src/db/prisma/schema.prisma)
-RUN npx prisma generate --schema=src/db/prisma/schema.prisma
-
-# Copy the rest of the source code
+# Copy full source — must happen BEFORE prisma generate so the
+# fresh generated client is never overwritten by stale local files
 COPY . .
 
-# Build TypeScript
+# Generate Prisma client from the non-standard schema path.
+# Running AFTER COPY . . ensures no local stale generated files can overwrite it.
+RUN npx prisma generate --schema=src/db/prisma/schema.prisma
+
+# Build TypeScript  (rootDir=src → outDir=dist)
 RUN npm run build
 
 # ─────────────────────────────────────────────────────────
@@ -25,11 +24,17 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy built assets and dependencies from builder
+# Runtime dependencies & compiled JavaScript
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./package.json
-# Copy migrations so `prisma migrate deploy` can run at startup
+
+# The Prisma client is generated to src/db/src/generated/prisma/.
+# After tsc (rootDir=src → outDir=dist), dist/db/db.js resolves
+# the import "./src/generated/prisma" to dist/db/src/generated/prisma/
+COPY --from=builder /app/src/db/src/generated/prisma ./dist/db/src/generated/prisma
+
+# Migrations for `prisma migrate deploy` at startup
 COPY --from=builder /app/src/db/prisma ./src/db/prisma
 
 EXPOSE 3000

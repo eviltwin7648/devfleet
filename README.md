@@ -1,6 +1,6 @@
 # DevFleet
 
-**DevFleet** is a self-hosted job orchestration and remote execution platform. It lets you register machines as *agents*, schedule shell scripts against those machines, stream real-time logs back to a web dashboard, and track execution history — all from a single, lightweight control plane.
+**DevFleet** is a self-hosted job orchestration and remote execution platform. It lets you register machines as _agents_, schedule shell scripts against those machines, stream real-time logs back to a web dashboard, and track execution history — all from a single, lightweight control plane.
 
 ---
 
@@ -25,19 +25,19 @@ DevFleet solves the problem of running scripts on remote machines without provis
 
 - Deploy the **backend** (API + worker) and **frontend** once.
 - Install the lightweight **Go agent** on any machine you want to control.
-- Create *job definitions* (shell scripts) in the dashboard.
+- Create _job definitions_ (shell scripts) in the dashboard.
 - Trigger or schedule those jobs — they run on the agent machine, and logs stream back live.
 
 Key features:
 
-| Feature | Description |
-|---|---|
-| Agent registration | Machines identify via an API key and machine fingerprint |
-| Heartbeat health | CPU / memory / disk metrics recorded every minute |
-| Job scheduling | One-time, delayed, and cron-based recurring jobs via BullMQ |
-| Live log streaming | Chunked log upload with SSE fan-out to the browser |
-| GitHub OAuth | Optional social login alongside email+OTP auth |
-| Offline detection | Agents marked offline after 2 missed heartbeats |
+| Feature            | Description                                                 |
+| ------------------ | ----------------------------------------------------------- |
+| Agent registration | Machines identify via an API key and machine fingerprint    |
+| Heartbeat health   | CPU / memory / disk metrics recorded every minute           |
+| Job scheduling     | One-time, delayed, and cron-based recurring jobs via BullMQ |
+| Live log streaming | Chunked log upload with SSE fan-out to the browser          |
+| GitHub OAuth       | Optional social login alongside email+OTP auth              |
+| Offline detection  | Agents marked offline after 2 missed heartbeats             |
 
 ---
 
@@ -84,20 +84,22 @@ Infrastructure: PostgreSQL · Redis
 This mono-repo contains four sub-projects:
 
 ### `Devfleet-backend/`
+
 > **Node.js · TypeScript · Express · Prisma · BullMQ**
 
 The control-plane API server + background worker. Two separate runtime processes share the same codebase and build artifact:
 
-| Process | Entry point | Role |
-|---|---|---|
-| API server | `src/api/index.ts` | REST API, auth, job dispatch, SSE log streaming |
-| Worker | `src/worker.ts` | BullMQ consumer — picks up scheduled jobs and creates `JobExecution` rows |
+| Process    | Entry point        | Role                                                                      |
+| ---------- | ------------------ | ------------------------------------------------------------------------- |
+| API server | `src/api/index.ts` | REST API, auth, job dispatch, SSE log streaming                           |
+| Worker     | `src/worker.ts`    | BullMQ consumer — picks up scheduled jobs and creates `JobExecution` rows |
 
 Packages: Express 5, Prisma 6, BullMQ 5, ioredis, jsonwebtoken, nodemailer, ws.
 
 ---
 
 ### `Devfleet-frontend/`
+
 > **Vue 3 · TypeScript · Vite · Tailwind CSS v4 · shadcn-vue**
 
 Single-page dashboard served by nginx in production. Connects to the backend via `VITE_API_BASE_URL` (baked in at build time).
@@ -107,13 +109,14 @@ Pages: Dashboard · Agents · Agent Details · Jobs · Job Details · Profile ·
 ---
 
 ### `Devfleet-agent/`
+
 > **Go · Cobra CLI**
 
 Lightweight binary installed on any managed machine. Has two CLI commands:
 
-| Command | Purpose |
-|---|---|
-| `devfleet-agent login` | Register the machine with the backend using an API key |
+| Command                | Purpose                                                   |
+| ---------------------- | --------------------------------------------------------- |
+| `devfleet-agent login` | Register the machine with the backend using an API key    |
 | `devfleet-agent start` | Verify identity, then begin heartbeat + job-polling loops |
 
 The agent stores credentials at `~/.devfleet/config.json`.
@@ -121,6 +124,7 @@ The agent stores credentials at `~/.devfleet/config.json`.
 ---
 
 ### `devfleet-landing page/`
+
 > **Vite · React · Tailwind CSS**
 
 A standalone static marketing/landing page. It is independent of the rest of the stack and is **not included** in the docker-compose setup. Run it separately with `npm run dev` inside that directory if needed.
@@ -131,20 +135,20 @@ A standalone static marketing/landing page. It is independent of the rest of the
 
 ### For Docker Compose (recommended)
 
-| Tool | Minimum version |
-|---|---|
-| Docker | 24.x |
+| Tool           | Minimum version                                         |
+| -------------- | ------------------------------------------------------- |
+| Docker         | 24.x                                                    |
 | Docker Compose | v2.x (bundled with Docker Desktop / Docker Engine ≥ 24) |
 
 ### For local development
 
-| Tool | Minimum version |
-|---|---|
-| Node.js | 20.x |
-| npm | 10.x |
-| Go | 1.24 |
-| PostgreSQL | 15 |
-| Redis | 7 |
+| Tool       | Minimum version |
+| ---------- | --------------- |
+| Node.js    | 20.x            |
+| npm        | 10.x            |
+| Go         | 1.24            |
+| PostgreSQL | 15              |
+| Redis      | 7               |
 
 ---
 
@@ -157,7 +161,7 @@ git clone https://github.com/eviltwin7648/devfleet.git
 cd devfleet
 ```
 
-### 2. (Optional) Create a `.env` file for secrets
+### 2. Create a `.env` file for secrets
 
 The compose file has sensible defaults for local development. If you want GitHub OAuth or email features, create a `.env` file next to `docker-compose.yml`:
 
@@ -185,10 +189,11 @@ docker compose up --build
 ```
 
 This brings up:
+
 - **PostgreSQL** on `localhost:5432`
 - **Redis** on `localhost:6379`
 - **Backend API** on `localhost:3000` — runs `prisma migrate deploy` then starts Express
-- **Worker** on  no exposed port — BullMQ consumer
+- **Worker** on no exposed port — BullMQ consumer
 - **Frontend** on `localhost:80` (open [http://localhost](http://localhost) in your browser)
 
 > The backend runs `npx prisma migrate deploy` automatically on startup. No manual migration step is needed.
@@ -217,23 +222,23 @@ All env vars are injected by `docker-compose.yml`. For local development set the
 
 ### Backend (`Devfleet-backend`)
 
-| Variable | Default (Docker) | Description |
-|---|---|---|
-| `DATABASE_URL` | `postgresql://devfleet:password123@postgres:5432/devfleet?schema=public` | Prisma connection string |
-| `REDIS_URL` | `redis://redis:6379` | Redis for BullMQ |
-| `PORT` | `3000` | Express listen port |
-| `API_URL` | `http://localhost:3000` | Public API base (used by backend internally) |
-| `FRONTEND_URL` | `http://localhost` | CORS allowed origin |
-| `JWT_SECRET` | `change-me-in-production` | **Change this in production** |
-| `GITHUB_CLIENT_ID` | *(blank)* | GitHub OAuth app client ID |
-| `GITHUB_CLIENT_SECRET` | *(blank)* | GitHub OAuth app client secret |
-| `EMAIL_USER` | *(blank)* | SMTP sender address |
-| `EMAIL_PASS` | *(blank)* | SMTP password / app password |
+| Variable               | Default (Docker)                                                         | Description                                  |
+| ---------------------- | ------------------------------------------------------------------------ | -------------------------------------------- |
+| `DATABASE_URL`         | `postgresql://devfleet:password123@postgres:5432/devfleet?schema=public` | Prisma connection string                     |
+| `REDIS_URL`            | `redis://redis:6379`                                                     | Redis for BullMQ                             |
+| `PORT`                 | `3000`                                                                   | Express listen port                          |
+| `API_URL`              | `http://localhost:3000`                                                  | Public API base (used by backend internally) |
+| `FRONTEND_URL`         | `http://localhost`                                                       | CORS allowed origin                          |
+| `JWT_SECRET`           | `change-me-in-production`                                                | **Change this in production**                |
+| `GITHUB_CLIENT_ID`     | _(blank)_                                                                | GitHub OAuth app client ID                   |
+| `GITHUB_CLIENT_SECRET` | _(blank)_                                                                | GitHub OAuth app client secret               |
+| `EMAIL_USER`           | _(blank)_                                                                | SMTP sender address                          |
+| `EMAIL_PASS`           | _(blank)_                                                                | SMTP password / app password                 |
 
 ### Frontend (`Devfleet-frontend`)
 
-| Variable | Default (Docker) | Description |
-|---|---|---|
+| Variable            | Default (Docker)        | Description                                            |
+| ------------------- | ----------------------- | ------------------------------------------------------ |
 | `VITE_API_BASE_URL` | `http://localhost:3000` | Backend URL baked into the static bundle at build time |
 
 ---
@@ -327,6 +332,7 @@ devfleet-agent login
 ```
 
 You will be prompted for:
+
 - **DevFleet API URL**: e.g. `http://localhost:3000` (or your public server address)
 - **Agent API Key**: the key you copied above
 
@@ -359,9 +365,9 @@ devfleet-agent start --token 'df_...' --api-url 'http://your-server:3000'
 
 ## Useful URLs
 
-| URL | Service |
-|---|---|
-| [http://localhost](http://localhost) | Frontend dashboard |
-| [http://localhost:3000](http://localhost:3000) | Backend REST API |
+| URL                                            | Service                                 |
+| ---------------------------------------------- | --------------------------------------- |
+| [http://localhost](http://localhost)           | Frontend dashboard                      |
+| [http://localhost:3000](http://localhost:3000) | Backend REST API                        |
 | [http://localhost:5432](http://localhost:5432) | PostgreSQL (connect with any PG client) |
-| [http://localhost:6379](http://localhost:6379) | Redis |
+| [http://localhost:6379](http://localhost:6379) | Redis                                   |

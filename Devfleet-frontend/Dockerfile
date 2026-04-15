@@ -7,6 +7,10 @@ RUN npm install
 
 COPY . .
 
+# Accept the API base URL at build time (Vite bakes env vars into the bundle)
+ARG VITE_API_BASE_URL=http://localhost:3000
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+
 RUN npm run build
 
 # Nginx server stage

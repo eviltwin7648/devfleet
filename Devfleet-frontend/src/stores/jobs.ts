@@ -88,7 +88,17 @@ export const useJobsStore = defineStore("jobs", () => {
   const cancelJob = async (executionId: string): Promise<boolean> => {
     try {
       await jobAPI.cancelJob(executionId);
-      // Refresh the job list or the specific job to reflect status
+      await fetchJobs();
+      return true;
+    } catch (err: any) {
+      error.value = err.message;
+      return false;
+    }
+  };
+
+  const stopJob = async (executionId: string): Promise<boolean> => {
+    try {
+      await jobAPI.stopJob(executionId);
       await fetchJobs();
       return true;
     } catch (err: any) {
@@ -107,6 +117,7 @@ export const useJobsStore = defineStore("jobs", () => {
     getJobExecutions,
     reRunJob,
     cancelJob,
+    stopJob,
   };
 
 });

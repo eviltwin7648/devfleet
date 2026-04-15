@@ -138,8 +138,11 @@ export const jobAPI = {
   reRunJob: (executionId: string) =>
     api.post(`/api/v1/jobs/execution/${executionId}/rerun`),
 
-  // Cancel job
+  // Cancel job execution (does not stop future runs of recurring jobs)
   cancelJob: (id: string) => api.post(`/api/v1/jobs/execution/${id}/cancel`),
+
+  // Stop a recurring job: cancel current execution + remove from scheduler (no future runs)
+  stopJob: (id: string) => api.post(`/api/v1/jobs/execution/${id}/stop`),
 
   // Get job logs
   getJobLogs: (id: string) => api.get<string>(`/api/v1/jobs/${id}/logs`),

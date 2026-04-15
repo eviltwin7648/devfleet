@@ -26,12 +26,47 @@
           </svg>
           {{ reRunning ? "Queuing…" : "Run Again" }}
         </DfButton>
+
+        <!-- One-time job: single cancel button -->
         <DfButton
-          v-if="canCancel"
+          v-if="canCancelExecution && !isRecurringJob"
           variant="danger"
           size="sm"
-          @click="cancelJob"
-        >Cancel</DfButton>
+          :loading="cancelling"
+          @click="cancelJobExecution"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Cancel
+        </DfButton>
+
+        <!-- Recurring job: two-button group -->
+        <template v-if="isRecurringJob">
+          <DfButton
+            v-if="canCancelExecution"
+            variant="danger"
+            size="sm"
+            :loading="cancelling"
+            @click="cancelJobExecution"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            Cancel Execution
+          </DfButton>
+          <DfButton
+            variant="danger"
+            size="sm"
+            :loading="stopping"
+            @click="stopRecurringJob"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <rect x="2" y="2" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+            Stop Job
+          </DfButton>
+        </template>
         <DfButton variant="ghost" size="sm" @click="downloadLogs">
           <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
             <path d="M5.5 1v6M3 5l2.5 2.5L8 5M1.5 9.5h8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
@@ -217,7 +252,9 @@ const execution        = ref<any>(null);
 const executions       = ref<any[]>([]);
 const loadingHistory   = ref(false);
 const activeExecutionId = ref(route.params.id as string);
-const reRunning        = ref(false);
+const reRunning  = ref(false);
+const cancelling = ref(false);
+const stopping   = ref(false);
 let sse: any = null;
 
 // ─────────────── UI state ───────────────
@@ -306,13 +343,18 @@ const isRunning = computed(() =>
   ["RUNNING", "DISPATCHED", "READY"].includes(execution.value?.status)
 );
 
-const canCancel = computed(() => {
+// True when this job definition is (still) recurring
+const isRecurringJob = computed(() => execution.value?.job?.isRecurring === true);
+
+// Can cancel the current execution (only while it is active)
+const canCancelExecution = computed(() => {
   const status = execution.value?.status;
   if (!status || status === "CANCELLED") return false;
-  
-  // Can cancel if it's currently running/ready, OR if the job itself is recurring (to stop future runs)
-  return isRunning.value || execution.value?.job?.isRecurring;
+  return isRunning.value;
 });
+
+// Legacy alias kept for safety (used nowhere else after refactor)
+const canCancel = computed(() => canCancelExecution.value);
 
 
 const canReRun = computed(() =>
@@ -415,14 +457,42 @@ const handleReRun = async () => {
   }
 };
 
-const cancelJob = async () => {
-  if (!activeExecutionId.value) return;
-  const success = await jobsStore.cancelJob(activeExecutionId.value);
-  if (success) {
-    if (execution.value) execution.value.status = "CANCELLED";
-    closeSSE();
+const cancelJobExecution = async () => {
+  if (cancelling.value || !activeExecutionId.value) return;
+  cancelling.value = true;
+  try {
+    const success = await jobsStore.cancelJob(activeExecutionId.value);
+    if (success) {
+      if (execution.value) execution.value.status = "CANCELLED";
+      closeSSE();
+    }
+  } finally {
+    cancelling.value = false;
   }
 };
+
+const stopRecurringJob = async () => {
+  if (stopping.value || !activeExecutionId.value) return;
+  stopping.value = true;
+  try {
+    const success = await jobsStore.stopJob(activeExecutionId.value);
+    if (success) {
+      if (execution.value) {
+        execution.value.status = "CANCELLED";
+        if (execution.value.job) {
+          execution.value.job.isRecurring = false;
+          execution.value.job.repeatCron  = null;
+        }
+      }
+      closeSSE();
+    }
+  } finally {
+    stopping.value = false;
+  }
+};
+
+// Keep legacy cancelJob pointed at cancelJobExecution for any other callers
+const cancelJob = cancelJobExecution;
 
 
 const downloadLogs = () => {

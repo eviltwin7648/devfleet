@@ -1,9 +1,13 @@
 version: "3.8"
 
 services:
+  # ─────────────────────────────────────────────────────────
+  # Infrastructure
+  # ─────────────────────────────────────────────────────────
   postgres:
     image: postgres:15-alpine
     container_name: devfleet-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: devfleet
       POSTGRES_PASSWORD: password123
@@ -21,66 +25,91 @@ services:
   redis:
     image: redis:7-alpine
     container_name: devfleet-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    container_name: devfleet-rabbitmq
-    environment:
-      RABBITMQ_DEFAULT_USER: devfleet
-      RABBITMQ_DEFAULT_PASS: password123
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-
+  # ─────────────────────────────────────────────────────────
+  # Backend API (Express + Prisma)
+  # Runs: prisma migrate deploy → npm start
+  # ─────────────────────────────────────────────────────────
   backend:
     build:
       context: ./Devfleet-backend
       dockerfile: Dockerfile
     container_name: devfleet-backend
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
+      # Database
       - DATABASE_URL=postgresql://devfleet:password123@postgres:5432/devfleet?schema=public
+      # Redis (BullMQ)
       - REDIS_URL=redis://redis:6379
-      - RABBITMQ_URL=amqp://devfleet:password123@rabbitmq:5672
+      # Server
       - PORT=3000
+      - API_URL=http://localhost:3000
+      # CORS – must match the origin the browser uses to reach the frontend
+      - FRONTEND_URL=http://localhost
+      # Auth
+      - JWT_SECRET=change-me-in-production
+      # GitHub OAuth (set your real values or leave blank to disable OAuth in Docker)
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
+      # Email (leave blank to skip email features in Docker)
+      - EMAIL_USER=${EMAIL_USER:-}
+      - EMAIL_PASS=${EMAIL_PASS:-}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
-      rabbitmq:
-        condition: service_started
+        condition: service_healthy
 
+  # ─────────────────────────────────────────────────────────
+  # BullMQ Worker (same image, different entrypoint)
+  # ─────────────────────────────────────────────────────────
   worker:
     build:
       context: ./Devfleet-backend
       dockerfile: Dockerfile
     container_name: devfleet-worker
+    restart: unless-stopped
+    # Override CMD – worker only; no HTTP server, no migration needed
+    # (backend already ran migrate deploy on the same DB)
     command: ["npm", "run", "worker"]
     environment:
       - DATABASE_URL=postgresql://devfleet:password123@postgres:5432/devfleet?schema=public
       - REDIS_URL=redis://redis:6379
-      - RABBITMQ_URL=amqp://devfleet:password123@rabbitmq:5672
+      - JWT_SECRET=change-me-in-production
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
-      rabbitmq:
+        condition: service_healthy
+      # Depend on backend so migrations run first
+      backend:
         condition: service_started
 
+  # ─────────────────────────────────────────────────────────
+  # Frontend (Vue 3 + Vite → nginx)
+  # VITE_API_BASE_URL is baked in at build time
+  # ─────────────────────────────────────────────────────────
   frontend:
     build:
       context: ./Devfleet-frontend
       dockerfile: Dockerfile
+      args:
+        # The browser calls this URL – must be reachable from the user's machine
+        VITE_API_BASE_URL: http://localhost:3000
     container_name: devfleet-frontend
+    restart: unless-stopped
     ports:
       - "80:80"
     depends_on:
@@ -89,4 +118,3 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  rabbitmq_data:

@@ -1,127 +1,126 @@
 package jobs
 
 import (
-	"bytes"
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
-	"net/http"
+	"sync"
 	"time"
 
-	"github.com/eviltwin7648/devfleet-agent/internal/utils"
+	"github.com/eviltwin7648/devfleet-agent/internal/client"
+	"github.com/eviltwin7648/devfleet-agent/internal/executor"
+	"github.com/eviltwin7648/devfleet-agent/internal/logstream"
+	"github.com/eviltwin7648/devfleet-agent/internal/models"
 )
 
-// StartPolling continuously long-polls the backend for jobs.
-// Using ?longPoll=true means the server holds the connection open (up to 30s)
-// and responds the moment a job is available — no fixed polling delay.
-func StartPolling(token string, agentId string, apiURL string) {
+type JobManager struct {
+	client   client.BackendClient
+	exec     executor.Executor
+	agentID  string
+	active   map[string]context.CancelFunc
+	mu       sync.Mutex
+}
+
+func NewJobManager(apiClient client.BackendClient, exec executor.Executor, agentID string) *JobManager {
+	return &JobManager{
+		client:  apiClient,
+		exec:    exec,
+		agentID: agentID,
+		active:  make(map[string]context.CancelFunc),
+	}
+}
+
+func (m *JobManager) CancelExecution(executionID string) {
+	m.mu.Lock()
+	cancel, ok := m.active[executionID]
+	m.mu.Unlock()
+	if ok {
+		fmt.Printf("[manager] Cancelling execution %s\n", executionID)
+		cancel()
+	}
+}
+
+func (m *JobManager) StartPolling(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
 	fmt.Println("[polling] Starting long-poll loop...")
 	for {
-		gotJob := poll(token, agentId, apiURL)
-		if !gotJob {
-			// No job or timeout — loop back immediately to long-poll again.
-			// Small sleep only on error (set inside poll) to avoid hammering on failures.
+		select {
+		case <-ctx.Done():
+			fmt.Println("[polling] Stopping loop...")
+			return
+		default:
+			if err := m.poll(ctx); err != nil {
+				fmt.Printf("[polling] Error: %v. Retrying in 5s...\n", err)
+				time.Sleep(5 * time.Second)
+			}
 		}
 	}
 }
 
-// poll does a single long-poll request. Returns true if a job was found and executed.
-// The server will hold the connection open for up to 30s waiting for a job,
-// so we set an HTTP timeout of 35s to give it room.
-func poll(token string, agentId string, apiURL string) bool {
-	req, err := http.NewRequest("GET", apiURL+"/api/v1/agent/jobs/pull", nil)
+func (m *JobManager) poll(ctx context.Context) error {
+	job, err := m.client.PullJob(ctx)
 	if err != nil {
-		fmt.Println("[poll] Error creating request:", err)
-		time.Sleep(5 * time.Second)
-		return false
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	// 35s timeout: server holds for 30s, we give 5s extra for network overhead
-	client := &http.Client{Timeout: 35 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		fmt.Println("[poll] Request error:", err)
-		time.Sleep(5 * time.Second)
-		return false
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		fmt.Println("[poll] Unexpected status:", resp.Status)
-		time.Sleep(5 * time.Second)
-		return false
+		return err
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Println("[poll] Error reading body:", err)
-		return false
+	if job == nil {
+		return nil
 	}
 
-	// Response is { "job": { ... } } or { "job": null }
-	var respData struct {
-		Job *utils.Job `json:"job"`
-	}
-	if err := json.Unmarshal(body, &respData); err != nil {
-		fmt.Println("[poll] Error parsing response:", err)
-		return false
-	}
+	fmt.Printf("[poll] Received job execution ID: %s\n", job.ExecutionId)
+	
+	jobCtx, jobCancel := context.WithCancel(ctx)
+	m.mu.Lock()
+	m.active[job.ExecutionId] = jobCancel
+	m.mu.Unlock()
+	defer func() {
+		m.mu.Lock()
+		delete(m.active, job.ExecutionId)
+		m.mu.Unlock()
+		jobCancel()
+	}()
 
-	if respData.Job == nil {
-		// Long-poll timed out server-side with no job — immediately loop again
-		return false
-	}
+	batcher, stdout, _ := logstream.Bind(job.ExecutionId, m.client)
+	defer batcher.Stop()
 
-	fmt.Printf("[poll] Received job execution ID: %s, script: %q\n", respData.Job.ExecutionId, respData.Job.Definition.Script)
-	if respData.Job.Definition.Script == "" {
-		fmt.Println("[poll] WARNING: job has an empty script, skipping execution")
-		return false
-	}
+	leaseCtx, leaseCancel := context.WithCancel(jobCtx)
+	defer leaseCancel()
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-leaseCtx.Done():
+				return
+			case <-ticker.C:
+				cancelled, err := m.client.RenewLease(leaseCtx, job.Definition.ID, job.ExecutionId)
+				if err != nil {
+					fmt.Printf("[poll] Lease renewal failed: %v\n", err)
+				}
+				if cancelled {
+					fmt.Printf("[poll] Job %s marked as cancelled on server, stopping...\n", job.ExecutionId)
+					m.CancelExecution(job.ExecutionId)
+					return
+				}
+			}
+		}
+	}()
 
-	result := utils.RunJob(*respData.Job, token, apiURL)
+	result := m.exec.Execute(jobCtx, *job, stdout)
+	
 	fmt.Printf("[poll] Job finished — status: %s, exit code: %d\n", result.Status, result.ExitCode)
 
-	if err := reportJobResult(token, apiURL, respData.Job.ExecutionId, result); err != nil {
-		fmt.Println("[poll] Failed to report job result:", err)
+	report := models.JobResult{
+		Status:     string(result.Status),
+		ExitCode:   result.ExitCode,
+		Error:      result.Error,
+		StartedAt:  result.StartedAt,
+		FinishedAt: result.FinishedAt,
+	}
+
+	if err := m.client.ReportResult(ctx, job.ExecutionId, report); err != nil {
+		fmt.Printf("[poll] Failed to report result: %v\n", err)
 	} else {
-		fmt.Println("[poll] Job result reported successfully.")
-	}
-	return true
-}
-
-func reportJobResult(token string, apiURL string, jobID string, result utils.JobResult) error {
-	payload := map[string]interface{}{
-		"status":    result.Status, // "SUCCESS", "FAILED"
-		"exit_code": result.ExitCode,
-		"stdout":    result.Stdout, // Sending logs optionally
-		"stderr":    result.Stderr,
-	}
-
-	jsonBody, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("marshal error: %w", err)
-	}
-
-	url := fmt.Sprintf("%s/api/v1/agent/execution/%s/result", apiURL, jobID)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return fmt.Errorf("create request error: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("request error: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("backend returned status %s: %s", resp.Status, string(body))
+		fmt.Println("[poll] Result reported successfully.")
 	}
 
 	return nil

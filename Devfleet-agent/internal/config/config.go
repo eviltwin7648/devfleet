@@ -18,11 +18,22 @@ func ConfigPath() string {
 }
 
 func SaveKey(key, agentID, apiURL string) error {
-	cfg := Config{
-		APIKey:  key,
-		AgentID: agentID,
-		APIURL:  apiURL,
+	cfg, err := LoadKey()
+	if err != nil {
+		// If it doesn't exist, start fresh
+		cfg = &Config{}
 	}
+
+	if key != "" {
+		cfg.APIKey = key
+	}
+	if agentID != "" {
+		cfg.AgentID = agentID
+	}
+	if apiURL != "" {
+		cfg.APIURL = apiURL
+	}
+
 	data, err := json.MarshalIndent(cfg, "", " ")
 	if err != nil {
 		return err
@@ -33,6 +44,7 @@ func SaveKey(key, agentID, apiURL string) error {
 	}
 	return os.WriteFile(ConfigPath(), data, 0600)
 }
+
 
 func LoadKey() (*Config, error) {
 	data, err := os.ReadFile(ConfigPath())

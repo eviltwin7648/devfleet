@@ -59,31 +59,67 @@ const register = async (req: Request, res: Response) => {
       res.status(403).json({ message: "API key has been revoked" });
       return;
     }
-    if (apiKeyRecord.usedAt) {
-      res.status(403).json({ message: "API key has already been used" });
+    if (apiKeyRecord.expiresAt < new Date()) {
+      res.status(403).json({ message: "API key has expired" });
       return;
     }
-    // Upsert agent by hostname (or other unique field)
-    const agent = await db.agent.upsert({
-      where: { id: agent_id },
-      update: {
-        os,
-        arch,
-        totalmem,
-        lastSeen: new Date(),
-        apiKeyId: apiKeyRecord.id,
-      },
-      create: {
-        id: agent_id,
-        hostname: normalizedHost,
-        os,
-        arch,
-        totalmem,
-        lastSeen: new Date(),
-        apiKeyId: apiKeyRecord.id,
-        userId: apiKeyRecord.userId,
-      },
+
+    let agent;
+    let status = "new";
+
+    // If agent_id is provided, attempt to re-link to existing agent
+    if (agent_id) {
+      const existingAgent = await db.agent.findUnique({
+        where: { id: agent_id },
+      });
+
+      if (existingAgent) {
+        // SECURITY: Verify that the new API Key belongs to the same user who owns the agent
+        if (existingAgent.userId !== apiKeyRecord.userId) {
+          res.status(403).json({
+            message: "Ownership mismatch: You cannot re-link this agent to a key belonging to another user.",
+          });
+          return;
+        }
+
+        // Re-link: Update the existing agent with the new key
+        agent = await db.agent.update({
+          where: { id: agent_id },
+          data: {
+            os,
+            arch,
+            totalmem,
+            lastSeen: new Date(),
+            apiKeyId: apiKeyRecord.id,
+          },
+        });
+        status = "re-linked";
+      }
+    }
+
+    // If no agent found or no agent_id provided, create new
+    if (!agent) {
+      agent = await db.agent.create({
+        data: {
+          id: agent_id || undefined,
+          hostname: normalizedHost,
+          os,
+          arch,
+          totalmem,
+          lastSeen: new Date(),
+          apiKeyId: apiKeyRecord.id,
+          userId: apiKeyRecord.userId,
+        },
+      });
+    }
+
+    // Mark the API key as used and link it to the agent
+    // First, unlink and revoke any old keys from this agent to satisfy the unique constraint and ensure security
+    await db.agentAPIKey.updateMany({
+      where: { agentId: agent.id, NOT: { id: apiKeyRecord.id } },
+      data: { agentId: null, revokedAt: new Date() },
     });
+
     await db.agentAPIKey.update({
       where: { id: apiKeyRecord.id },
       data: { usedAt: new Date(), isUsed: true, agentId: agent.id },
@@ -91,7 +127,7 @@ const register = async (req: Request, res: Response) => {
 
     res.status(200).json({
       agent_id: agent.id,
-      status: agent.lastSeen ? "updated" : "new",
+      status: status,
       username: apiKeyRecord.user.name,
     });
   } catch (err) {
@@ -131,21 +167,8 @@ const heartbeat = async (req: Request, res: Response) => {
       });
     }
 
-    console.log("HEARTBEAT RECEIVED from agent", agentId);
-
-    // Check for any jobs that were cancelled but the agent doesn't know yet
-    const cancelledExecutions = await db.jobExecution.findMany({
-      where: {
-        agentId,
-        status: "CANCELLED",
-        finishedAt: null,
-      },
-      select: { id: true },
-    });
-
     res.status(200).json({
       message: "Heartbeat received",
-      cancelExecutions: cancelledExecutions.map((e) => e.id),
     });
 
   } catch (err) {
@@ -191,6 +214,7 @@ const pullJobs = async (req: Request, res: Response) => {
           data: {
             status: "DISPATCHED",
             agentId: agentId,
+            lastHeartbeatAt: new Date(),
           },
           include: { job: true },
         });
@@ -558,7 +582,13 @@ const verifyAgent = async (req: Request, res: Response) => {
     }
 
     if (!apiKeyRecord.agent) {
-      res.status(400).json({ message: "Agent not found" });
+      res.status(400).json({ message: "Agent not found for this API Key" });
+      return;
+    }
+
+    // Expiry Check
+    if (apiKeyRecord.expiresAt < new Date()) {
+      res.status(401).json({ message: "API Key has expired. Please register a new one." });
       return;
     }
     // Existing agent linked to key
@@ -591,6 +621,87 @@ const verifyAgent = async (req: Request, res: Response) => {
   }
 };
 
+const renewLease = async (req: Request, res: Response) => {
+  try {
+    const { executionId } = req.body;
+    const agentId = req.agent?.id;
+
+    if (!agentId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return;
+    }
+
+    const execution = await db.jobExecution.findUnique({
+      where: { id: executionId },
+    });
+
+    if (!execution) {
+      res.status(404).json({ message: "Job execution not found" });
+      return;
+    }
+
+    if (execution.agentId !== agentId) {
+      res.status(403).json({ message: "Forbidden: Agent mismatch" });
+      return;
+    }
+
+    if (execution.status === "CANCELLED") {
+      res.status(200).json({ message: "Lease renewed", cancelled: true });
+      return;
+    }
+
+    // Update heartbeat and status if it was DISPATCHED
+    const updateData: any = {
+      lastHeartbeatAt: new Date(),
+    };
+
+    if (execution.status === "DISPATCHED") {
+      updateData.status = "RUNNING";
+      updateData.startedAt = execution.startedAt || new Date();
+    }
+
+    await db.jobExecution.update({
+      where: { id: executionId },
+      data: updateData,
+    });
+
+    res.status(200).json({ message: "Lease renewed" });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to renew lease", error: String(err) });
+  }
+};
+
+const checkStaleJobs = async () => {
+  try {
+    const bufferSeconds = 15;
+    const cutoff = new Date(Date.now() - bufferSeconds * 1000);
+
+    const staleExecutions = await db.jobExecution.findMany({
+      where: {
+        status: { in: ["DISPATCHED", "RUNNING"] },
+        OR: [
+          { lastHeartbeatAt: { lt: cutoff } },
+          { lastHeartbeatAt: null, createdAt: { lt: cutoff } },
+        ],
+      },
+    });
+
+    for (const execution of staleExecutions) {
+      console.log(`⚠️ Marking job execution ${execution.id} as FAILED due to missed heartbeats.`);
+      await db.jobExecution.update({
+        where: { id: execution.id },
+        data: {
+          status: "FAILED",
+          failureType: "AGENT_ERROR",
+          finishedAt: new Date(),
+        },
+      });
+    }
+  } catch (err) {
+    console.error("Error checking stale jobs:", err);
+  }
+};
+
 export const agentController = {
   register,
   heartbeat,
@@ -603,5 +714,7 @@ export const agentController = {
   getAgent,
   getAgentHealthHistory,
   verifyAgent,
+  renewLease,
+  checkStaleJobs,
   // pollJobs
 };

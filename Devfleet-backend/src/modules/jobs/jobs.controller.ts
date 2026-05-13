@@ -257,6 +257,11 @@ const reRunJob = async (req: Request, res: Response) => {
       return;
     }
 
+    if (originalExecution.status === "CANCELLED" || originalExecution.job.state === "CANCELLED") {
+      res.status(400).json({ message: "Cannot re-run a cancelled job execution or definition" });
+      return;
+    }
+
     // Count existing executions to determine next attempt number
     const attemptCount = await db.jobExecution.count({
       where: { jobId: originalExecution.jobId },
@@ -369,11 +374,11 @@ const stopJob = async (req: Request, res: Response) => {
     // Remove from the BullMQ scheduler so no future runs are triggered
     await JobScheduler.removeRecurringJob(execution.job.id);
 
-    // Mark the job definition as no longer recurring so the UI reflects this
-    // await db.jobDefinition.update({
-    //   where: { id: execution.job.id },
-    //   data: { isRecurring: false, repeatCron: null },
-    // });
+    // Mark the job definition as no longer active so the UI reflects this
+    await db.jobDefinition.update({
+      where: { id: execution.job.id },
+      data: { state: "CANCELLED" },
+    });
 
     res.status(200).json({ message: "Recurring job stopped successfully" });
   } catch (error) {

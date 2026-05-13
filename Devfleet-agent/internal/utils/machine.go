@@ -4,28 +4,22 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/eviltwin7648/devfleet-agent/internal/models"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
 )
 
-type MachineInfo struct {
-	OS       string `json:"os"`
-	Arch     string `json:"arch"`
-	Hostname string `json:"hostname"`
-	TotalMem uint64 `json:"totalMem"`
-}
-
-// CollectMachineInfo gathers system metadata used during login, verify, heartbeat
-func CollectMachineInfo() (MachineInfo, error) {
+// CollectMachineInfo gathers system metadata
+func CollectMachineInfo() (models.MachineInfo, error) {
 	hostname, _ := os.Hostname()
 
 	memInfo, err := mem.VirtualMemory()
 	if err != nil {
-		return MachineInfo{}, err
+		return models.MachineInfo{}, err
 	}
 
-	return MachineInfo{
+	return models.MachineInfo{
 		OS:       runtime.GOOS,
 		Arch:     runtime.GOARCH,
 		Hostname: hostname,
@@ -33,19 +27,12 @@ func CollectMachineInfo() (MachineInfo, error) {
 	}, nil
 }
 
-type HealthInfo struct {
-	CPUUsage  float64 `json:"cpuUsage"`
-	MemUsage  float64 `json:"memUsage"`
-	DiskUsage float64 `json:"diskUsage"`
-}
-
-func CollectHealthInfo() (HealthInfo, error) {
+func CollectHealthInfo() (models.HealthInfo, error) {
 	memInfo, err := mem.VirtualMemory()
 	if err != nil {
-		return HealthInfo{}, err
+		return models.HealthInfo{}, err
 	}
 
-	// We pass 0 as interval so it returns immediately (returns % since last call)
 	cpuPercents, err := cpu.Percent(0, false)
 	cpuUsage := 0.0
 	if err == nil && len(cpuPercents) > 0 {
@@ -58,7 +45,7 @@ func CollectHealthInfo() (HealthInfo, error) {
 		diskUsage = diskInfo.UsedPercent
 	}
 
-	return HealthInfo{
+	return models.HealthInfo{
 		CPUUsage:  cpuUsage,
 		MemUsage:  memInfo.UsedPercent,
 		DiskUsage: diskUsage,

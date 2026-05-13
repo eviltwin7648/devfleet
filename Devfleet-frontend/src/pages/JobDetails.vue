@@ -42,7 +42,7 @@
         </DfButton>
 
         <!-- Recurring job: two-button group -->
-        <template v-if="isRecurringJob">
+        <template v-if="isRecurringJob && !isJobStopped">
           <DfButton
             v-if="canCancelExecution"
             variant="danger"
@@ -67,6 +67,14 @@
             Stop Job
           </DfButton>
         </template>
+        
+        <!-- Indicator for stopped recurring job -->
+        <div v-if="isRecurringJob && isJobStopped" class="flex items-center gap-2 px-3 py-1 bg-[#FF453A]/10 border border-[#FF453A]/20 rounded text-[#FF453A] text-[11px] font-medium">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <rect x="2" y="2" width="6" height="6" rx="1" fill="currentColor"/>
+          </svg>
+          RECURRING STOPPED
+        </div>
         <DfButton variant="ghost" size="sm" @click="downloadLogs">
           <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
             <path d="M5.5 1v6M3 5l2.5 2.5L8 5M1.5 9.5h8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
@@ -345,6 +353,7 @@ const isRunning = computed(() =>
 
 // True when this job definition is (still) recurring
 const isRecurringJob = computed(() => execution.value?.job?.isRecurring === true);
+const isJobStopped    = computed(() => execution.value?.job?.state === "CANCELLED");
 
 // Can cancel the current execution (only while it is active)
 const canCancelExecution = computed(() => {
@@ -357,9 +366,12 @@ const canCancelExecution = computed(() => {
 const canCancel = computed(() => canCancelExecution.value);
 
 
-const canReRun = computed(() =>
-  ["SUCCESS", "FAILED", "CANCELLED", "TIMEOUT"].includes(execution.value?.status)
-);
+const canReRun = computed(() => {
+  const status = execution.value?.status;
+  const state  = execution.value?.job?.state;
+  if (status === "CANCELLED" || state === "CANCELLED") return false;
+  return ["SUCCESS", "FAILED", "CANCELLED", "TIMEOUT"].includes(status);
+});
 
 const metaRows = computed(() => {
   const e = execution.value;
@@ -480,8 +492,7 @@ const stopRecurringJob = async () => {
       if (execution.value) {
         execution.value.status = "CANCELLED";
         if (execution.value.job) {
-          execution.value.job.isRecurring = false;
-          execution.value.job.repeatCron  = null;
+          execution.value.job.state = "CANCELLED";
         }
       }
       closeSSE();

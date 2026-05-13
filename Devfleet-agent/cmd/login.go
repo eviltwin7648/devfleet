@@ -40,7 +40,7 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("failed to save key: %w", err)
 
 		}
-		fmt.Println("Welcome", data.Username)
+		fmt.Printf("Login successful! Agent ID: %s\n", data.AgentID)
 		fmt.Println("API key saved successfully")
 		return nil
 	},

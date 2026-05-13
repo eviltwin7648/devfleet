@@ -11,6 +11,7 @@ router.post("/heartbeat", agentAuth, agentController.heartbeat);
 router.get("/jobs/pull", agentAuth, agentController.pullJobs); 
 router.post("/execution/:executionId/logs", agentAuth, agentController.jobLogs);
 router.post("/execution/:executionId/result", agentAuth, agentController.jobResult);
+router.post("/jobs/renewlease", agentAuth, agentController.renewLease);
 router.post("/shutdown", agentAuth, agentController.shutdown);
 //api key
 router.get("/api-key", userAuth, agentController.createApiKey);

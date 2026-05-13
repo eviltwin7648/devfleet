@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import { createServer } from "./server";
 import { JobDispatcher, JobEvent } from "../lib/jobDispatcher";
 import { LongPollManager } from "../modules/agents/longPollManager";
+import { agentController } from "../modules/agents/agent.controller";
 
 dotenv.config();
 
@@ -37,6 +38,15 @@ setInterval(async () => {
      console.error("Disconnect detection error:", e);
    }
 }, 60 * 1000);
+
+// Stale Job Detection (every 20 seconds)
+setInterval(async () => {
+  try {
+    await agentController.checkStaleJobs();
+  } catch (e) {
+    console.error("Stale job detection error:", e);
+  }
+}, 20 * 1000);
 
 app.listen(PORT, () => {
     console.log(`DevFleet Server is Up and running on port ${PORT}`);

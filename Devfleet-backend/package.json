@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "build": "npx prisma generate --schema=src/db/prisma/schema.prisma && npx tsc -b",
+    "build": "npm install && prisma generate --schema=src/db/prisma/schema.prisma && tsc -b",
     "start": "node dist/api/index.js",
     "dev": "ts-node-dev --respawn --transpile-only src/api/index.ts",
     "worker": "node dist/worker.js",

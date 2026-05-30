@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "build": "npx tsc -b",
+    "build": "npx prisma generate --schema=src/db/prisma/schema.prisma && npx tsc -b",
     "start": "node dist/api/index.js",
     "dev": "ts-node-dev --respawn --transpile-only src/api/index.ts",
     "worker": "node dist/worker.js",
@@ -30,6 +30,7 @@
     "ws": "^8.18.3"
   },
   "devDependencies": {
+    "@types/node": "^20.11.0",
     "@types/bcrypt": "^5.0.2",
     "@types/cookie-parser": "^1.4.8",
     "@types/cors": "^2.8.18",

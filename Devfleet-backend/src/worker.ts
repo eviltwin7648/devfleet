@@ -49,15 +49,15 @@ const worker = new Worker<JobData>(
 );
 
 // Worker event listeners
-worker.on("completed", (job) => {
+worker.on("completed", (job: Job<JobData>) => {
   console.log(`✅ Worker completed job ${job.id}`);
 });
 
-worker.on("failed", (job, err) => {
+worker.on("failed", (job: Job<JobData> | undefined, err: Error) => {
   console.error(`❌ Worker failed job ${job?.id}:`, err);
 });
 
-worker.on("error", (err) => {
+worker.on("error", (err: Error) => {
   console.error("Worker error:", err);
 });
 

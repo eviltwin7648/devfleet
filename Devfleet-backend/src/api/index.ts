@@ -50,4 +50,12 @@ setInterval(async () => {
 
 app.listen(PORT, () => {
     console.log(`DevFleet Server is Up and running on port ${PORT}`);
+
+    // Conditionally start worker in the same process for single-service deployments (like Render free tier)
+    if (process.env.RUN_WORKER === "true") {
+        console.log("⚙️ Starting worker in the same process...");
+        import("../worker").catch(err => {
+            console.error("❌ Failed to start worker in-process:", err);
+        });
+    }
 });

@@ -29,10 +29,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./package.json
 
-# The Prisma client is generated to src/db/src/generated/prisma/.
-# After tsc (rootDir=src → outDir=dist), dist/db/db.js resolves
-# the import "./src/generated/prisma" to dist/db/src/generated/prisma/
-COPY --from=builder /app/src/db/src/generated/prisma ./dist/db/src/generated/prisma
+
 
 # Migrations for `prisma migrate deploy` at startup
 COPY --from=builder /app/src/db/prisma ./src/db/prisma

@@ -18,7 +18,7 @@
     "date-fns": "^2.30.0",
     "lucide-react": "0.548.0",
     "lucide-vue-next": "^0.294.0",
-    "next": "16.0.0",
+    "next": "16.0.10",
     "pinia": "^2.1.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",

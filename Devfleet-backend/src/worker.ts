@@ -45,6 +45,7 @@ const worker = new Worker<JobData>(
   {
     connection,
     concurrency: 10, // Process up to 10 jobs concurrently
+    skipVersionCheck: true, // Prevents calling INFO command for version checking
   },
 );
 

@@ -6,11 +6,13 @@ console.log("REDIS URL", REDIS_URL);
 // Create Redis connection
 const connection = new Redis(REDIS_URL, {
   maxRetriesPerRequest: null,
+  enableReadyCheck: false, // Prevents calling INFO command on startup
 });
 
 // Create BullMQ Queue for job scheduling
 export const jobQueue = new Queue("devfleet-jobs", {
   connection,
+  skipVersionCheck: true, // Prevents calling INFO command for version checking
   defaultJobOptions: {
     attempts: 3, // Retry up to 3 times
     backoff: {
@@ -30,6 +32,7 @@ export const jobQueue = new Queue("devfleet-jobs", {
 // Queue events for monitoring
 export const queueEvents = new QueueEvents("devfleet-jobs", {
   connection: connection.duplicate(),
+  skipVersionCheck: true, // Prevents calling INFO command for version checking
 });
 
 // Event listeners for debugging
